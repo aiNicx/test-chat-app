@@ -12,6 +12,7 @@ To start a new project from scratch with Convex and Convex Auth, run:
 
 npm create convex@latest
 
+
 and choose React (Vite) and Convex Auth.
 
 To add Convex Auth to an existing project, follow the full setup guide.
