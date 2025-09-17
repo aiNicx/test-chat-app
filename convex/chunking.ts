@@ -6,9 +6,9 @@ import type { Chunk } from "./embedding";
 export type { Chunk } from "./embedding";
 
 export class DocumentChunker {
-  private static readonly MAX_CHUNK_SIZE = 1000; // token (~750 parole)
-  private static readonly MIN_CHUNK_SIZE = 200;  // token
-  private static readonly OVERLAP_SIZE = 100;   // token di overlap
+  private static readonly MAX_CHUNK_SIZE = 1500; // token (~1125 parole) - aumentato per PDF
+  private static readonly MIN_CHUNK_SIZE = 300;  // token - aumentato per coerenza
+  private static readonly OVERLAP_SIZE = 150;   // token di overlap - aumentato per contesto
 
   static chunkDocument(content: string, documentId: string): Chunk[] {
     const chunks: Chunk[] = [];
@@ -31,7 +31,15 @@ export class DocumentChunker {
     let currentTitle = '';
 
     for (const line of lines) {
-      if (line.match(/^#{1,6}\s/)) {
+      // Migliora il riconoscimento di titoli per PDF
+      if (
+        line.match(/^#{1,6}\s/) || // Markdown headers
+        line.match(/^\d+\.\s+[A-Z]/) || // Numbered sections (1. Title)
+        line.match(/^[A-Z][A-Z\s]{3,}$/) || // ALL CAPS titles
+        (line.match(/^[A-Z]/) && line.length < 100 && line.endsWith(':')) || // Title with colon
+        line.match(/^Chapter\s+\d+/i) || // Chapter titles
+        line.match(/^Section\s+\d+/i) // Section titles
+      ) {
         if (currentSection.trim()) {
           sections.push({
             title: currentTitle,
@@ -97,15 +105,45 @@ export class DocumentChunker {
   }
 
   private static findNaturalBreak(words: string[], start: number, preferredEnd: number): number {
+    // Cerca un punto di interruzione naturale in ordine di priorità
+    for (let i = Math.min(preferredEnd, words.length) - 1; i > start + 50; i--) { // Evita chunk troppo piccoli
+      const word = words[i];
+      const nextWord = words[i + 1] || '';
+      
+      // 1. Fine di paragrafo (doppio newline)
+      if (word.includes('\n\n') || nextWord.includes('\n\n')) {
+        return i + 1;
+      }
+      
+      // 2. Fine di frase con punto, punto esclamativo o interrogativo
+      if ((word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) && 
+          nextWord && nextWord.match(/^[A-Z]/)) {
+        return i + 1;
+      }
+      
+      // 3. Fine di elenco puntato o numerato
+      if (word.endsWith(':') && (nextWord.match(/^[-•*]\s/) || nextWord.match(/^\d+\.\s/))) {
+        return i + 1;
+      }
+      
+      // 4. Interruzioni di sezione
+      if (nextWord && (
+        nextWord.match(/^Chapter\s+\d+/i) ||
+        nextWord.match(/^Section\s+\d+/i) ||
+        nextWord.match(/^\d+\.\s+[A-Z]/)
+      )) {
+        return i + 1;
+      }
+    }
+    
+    // Fallback: cerca almeno un punto
     for (let i = Math.min(preferredEnd, words.length) - 1; i > start; i--) {
       const word = words[i];
       if (word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) {
         return i + 1;
       }
-      if (word === '' || word.includes('\n\n')) {
-        return i + 1;
-      }
     }
+    
     return Math.min(preferredEnd, words.length);
   }
 

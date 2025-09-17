@@ -11,7 +11,8 @@ Sistema completo per gestire una knowledge base vettoriale con RAG (Retrieval-Au
 - Risposte contestualizzate dal chatbot
 
 ### ✅ **Dashboard Interattiva**
-- Upload documenti da file o testo
+- Upload documenti da file o testo (supporta .md, .txt, .pdf)
+- Elaborazione intelligente di PDF con estrazione testo
 - Gestione completa della knowledge base
 - Statistiche dettagliate sull'utilizzo
 - Monitoraggio in tempo reale del processamento
@@ -134,7 +135,8 @@ await setupKB({ userId: user.id });
 1. Vai su `/knowledge`
 2. Usa la tab "📤 Upload Documenti"
 3. **Testo**: Incolla direttamente documenti
-4. **File**: Carica file .md o .txt
+4. **File**: Carica file .md, .txt o .pdf
+5. **PDF**: Il sistema estrae automaticamente il testo e lo processa
 
 ### **3. Testare il Sistema RAG**
 
@@ -182,7 +184,9 @@ class OpenAIEmbedder {
 
 ### **📤 Upload Documenti**
 - **Input Testo**: Incolla direttamente contenuti
-- **Upload File**: Supporta .md e .txt
+- **Upload File**: Supporta .md, .txt e .pdf
+- **Elaborazione PDF**: Estrazione automatica del testo
+- **Chunking Intelligente**: Suddivisione coerente per PDF complessi
 - **Progress Tracking**: Monitora l'elaborazione
 - **Error Handling**: Gestione errori user-friendly
 

@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
+import { api } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 
 
 // Salva documento
@@ -308,5 +310,38 @@ export const getKnowledgeStats = query({
       categoryStats,
       totalTokens,
     };
+  },
+});
+
+// Export per compatibilità con DocumentUploader
+export const addDocumentWithEmbedding = mutation({
+  args: {
+    userId: v.string(),
+    title: v.string(),
+    content: v.string(),
+    category: v.string(),
+    source: v.optional(v.string()),
+  },
+  returns: v.object({
+    documentId: v.id("documents"),
+    chunksProcessed: v.number(),
+    chunksSaved: v.number(),
+    totalTokens: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    // Delega al processDocumentWithEmbedding action
+    try {
+      await ctx.scheduler.runAfter(0, api.knowledgeActions.processDocumentWithEmbedding, args);
+      
+      // Per ora ritorniamo valori placeholder - il processamento avverrà in background
+      return {
+        documentId: "" as Id<"documents">,
+        chunksProcessed: 0,
+        chunksSaved: 0,
+        totalTokens: 0,
+      };
+    } catch (error) {
+      throw new Error(`Errore nell'avviare il processamento: ${error}`);
+    }
   },
 });

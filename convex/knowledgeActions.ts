@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import { DocumentChunker } from "./chunking";
 import { OpenAIEmbedder } from "./embedding";
 import { Id } from "./_generated/dataModel";
+// Rimuoviamo pdf-parse per ora - utilizzeremo l'estrazione lato client
 
 // Action per processare un singolo documento con embedding
 // Segue le best practices per RAG con Convex Agent component
@@ -316,3 +317,172 @@ export const searchSemanticWithEmbedding = action({
     }
   },
 });
+
+// Action per processare file PDF (con testo già estratto lato client)
+export const processPDFDocument = action({
+  args: {
+    userId: v.string(),
+    title: v.string(),
+    extractedText: v.string(), // Testo già estratto dal PDF lato client
+    category: v.string(),
+    source: v.optional(v.string()),
+  },
+  returns: v.object({
+    documentId: v.id("documents"),
+    chunksProcessed: v.number(),
+    chunksSaved: v.number(),
+    totalTokens: v.number(),
+    success: v.boolean(),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<{
+    documentId: Id<"documents">;
+    chunksProcessed: number;
+    chunksSaved: number;
+    totalTokens: number;
+    success: boolean;
+    error?: string;
+  }> => {
+    try {
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        return {
+          documentId: "" as Id<"documents">,
+          chunksProcessed: 0,
+          chunksSaved: 0,
+          totalTokens: 0,
+          success: false,
+          error: "OPENAI_API_KEY non configurata"
+        };
+      }
+
+      // 1. Valida il testo estratto
+      if (!args.extractedText || args.extractedText.trim().length === 0) {
+        return {
+          documentId: "" as Id<"documents">,
+          chunksProcessed: 0,
+          chunksSaved: 0,
+          totalTokens: 0,
+          success: false,
+          error: "Testo estratto dal PDF vuoto o non valido"
+        };
+      }
+
+      // 2. Preprocessa il testo PDF per migliorare la qualità
+      const cleanedText = cleanPDFText(args.extractedText);
+
+      // 3. Processa il documento pulito usando la stessa logica
+      // Salva documento
+      const docId: Id<"documents"> = await ctx.runMutation(internal.setupKnowledge.saveDocumentInternal, {
+        userId: args.userId,
+        title: args.title,
+        content: cleanedText,
+        category: args.category,
+        source: args.source || 'pdf_upload',
+      });
+
+      // Chunking
+      const chunks = DocumentChunker.chunkDocument(cleanedText, docId);
+
+      if (chunks.length === 0) {
+        return {
+          documentId: docId,
+          chunksProcessed: 0,
+          chunksSaved: 0,
+          totalTokens: 0,
+          success: false,
+          error: "Nessun chunk generato dal documento PDF"
+        };
+      }
+
+      // Genera embedding con retry logic
+      let embeddings;
+      try {
+        embeddings = await OpenAIEmbedder.generateEmbeddingsBatch(
+          chunks,
+          openaiKey,
+          5
+        );
+      } catch (embeddingError) {
+        console.error("Errore nella generazione degli embedding:", embeddingError);
+        return {
+          documentId: docId,
+          chunksProcessed: chunks.length,
+          chunksSaved: 0,
+          totalTokens: 0,
+          success: false,
+          error: `Errore nella generazione degli embedding: ${embeddingError instanceof Error ? embeddingError.message : 'Errore sconosciuto'}`
+        };
+      }
+
+      // Salva chunks con embedding
+      let savedChunks = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const embedding = embeddings.find((e: {chunkId: string, embedding: number[], model: string, tokenCount: number}) => e.chunkId === chunk.id);
+
+        if (embedding) {
+          try {
+            await ctx.runMutation(internal.setupKnowledge.saveChunkInternal, {
+              documentId: docId,
+              userId: args.userId,
+              chunkId: chunk.id,
+              content: chunk.content,
+              embedding: embedding.embedding,
+              metadata: chunk.metadata,
+              model: embedding.model,
+              tokenCount: embedding.tokenCount,
+            });
+            savedChunks++;
+          } catch (chunkError) {
+            console.error(`Errore nel salvare chunk ${chunk.id}:`, chunkError);
+            errors.push(`Chunk ${i + 1}: ${chunkError instanceof Error ? chunkError.message : 'Errore sconosciuto'}`);
+          }
+        } else {
+          errors.push(`Chunk ${i + 1}: embedding non trovato`);
+        }
+      }
+
+      const totalTokens = embeddings.reduce((sum: number, e: {tokenCount: number}) => sum + e.tokenCount, 0);
+
+      return {
+        documentId: docId,
+        chunksProcessed: chunks.length,
+        chunksSaved: savedChunks,
+        totalTokens,
+        success: savedChunks > 0,
+        error: errors.length > 0 ? `Alcuni chunk non sono stati salvati: ${errors.join('; ')}` : undefined
+      };
+
+    } catch (error) {
+      console.error("Errore generale nel processamento PDF:", error);
+      return {
+        documentId: "" as Id<"documents">,
+        chunksProcessed: 0,
+        chunksSaved: 0,
+        totalTokens: 0,
+        success: false,
+        error: `Errore nel processamento PDF: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`
+      };
+    }
+  },
+});
+
+// Funzione helper per pulire il testo estratto dai PDF
+function cleanPDFText(text: string): string {
+  return text
+    // Rimuovi caratteri di controllo e caratteri speciali problematici
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Normalizza gli spazi bianchi
+    .replace(/\s+/g, ' ')
+    // Rimuovi spazi multipli
+    .replace(/[ ]{2,}/g, ' ')
+    // Ripara le parole spezzate a fine riga
+    .replace(/(\w)-\s+(\w)/g, '$1$2')
+    // Normalizza le interruzioni di riga
+    .replace(/\n\s*\n/g, '\n\n')
+    // Rimuovi spazi all'inizio e alla fine
+    .trim();
+}

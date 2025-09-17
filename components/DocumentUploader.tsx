@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useMutation } from "convex/react";
+import { useState, useRef, useEffect } from "react";
+import { useMutation, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 
 interface DocumentUploaderProps {
@@ -20,18 +20,58 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
   const [textInput, setTextInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<ProcessingResult[]>([]);
+  const [isClient, setIsClient] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Assicura che il componente sia renderizzato solo lato client
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const processTextDocument = useMutation(api.knowledge.addDocumentWithEmbedding);
   const processFileDocument = useMutation(api.knowledge.addDocumentWithEmbedding);
+  const processPDFDocument = useAction(api.knowledgeActions.processPDFDocument);
+
+  // Funzione per estrarre testo da PDF con import dinamico
+  const extractTextFromPDF = async (file: File): Promise<string> => {
+    try {
+      // Import dinamico di PDF.js solo quando necessario (lato client)
+      const pdfjsLib = await import('pdfjs-dist');
+      
+      // Configura worker solo se non già configurato
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' ');
+        fullText += pageText + '\n\n';
+      }
+
+      return fullText.trim();
+    } catch (error) {
+      console.error('Errore nell\'estrazione del testo PDF:', error);
+      throw new Error('Impossibile estrarre il testo dal PDF. Assicurati che il file sia un PDF valido.');
+    }
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
     const validFiles = selectedFiles.filter(file =>
       file.type === 'text/markdown' ||
       file.type === 'text/plain' ||
+      file.type === 'application/pdf' ||
       file.name.endsWith('.md') ||
-      file.name.endsWith('.txt')
+      file.name.endsWith('.txt') ||
+      file.name.endsWith('.pdf')
     );
     setFiles(validFiles);
   };
@@ -67,15 +107,48 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
 
     try {
       for (const file of files) {
-        const content = await file.text();
+        let result: ProcessingResult;
 
-        const result = await processFileDocument({
-          userId,
-          title: file.name.replace(/\.(md|txt)$/i, ''),
-          content,
-          category: "file_upload",
-          source: `uploaded_file_${file.name}`,
-        });
+        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+          // Gestisce file PDF - estrae il testo lato client
+          try {
+            const extractedText = await extractTextFromPDF(file);
+            
+            if (!extractedText || extractedText.trim().length === 0) {
+              throw new Error('Impossibile estrarre testo dal PDF o PDF vuoto');
+            }
+            
+            result = await processPDFDocument({
+              userId,
+              title: file.name.replace(/\.pdf$/i, ''),
+              extractedText,
+              category: "pdf_upload",
+              source: `uploaded_pdf_${file.name}`,
+            });
+          } catch (pdfError) {
+            console.error(`Errore nell'elaborazione del PDF ${file.name}:`, pdfError);
+            // Crea un risultato di errore
+            result = {
+              documentId: '',
+              chunksProcessed: 0,
+              chunksSaved: 0,
+              totalTokens: 0,
+            };
+            alert(`Errore nell'elaborazione del PDF ${file.name}: ${pdfError instanceof Error ? pdfError.message : 'Errore sconosciuto'}`);
+            continue; // Salta questo file e continua con il prossimo
+          }
+        } else {
+          // Gestisce file di testo (.md, .txt)
+          const content = await file.text();
+
+          result = await processFileDocument({
+            userId,
+            title: file.name.replace(/\.(md|txt)$/i, ''),
+            content,
+            category: "file_upload",
+            source: `uploaded_file_${file.name}`,
+          });
+        }
 
         uploadResults.push(result);
       }
@@ -92,6 +165,20 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
       setIsProcessing(false);
     }
   };
+
+  // Mostra loading durante l'hydration per evitare problemi SSR
+  if (!isClient) {
+    return (
+      <div className="space-y-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <div className="animate-pulse">
+            <div className="h-6 bg-gray-200 rounded mb-4"></div>
+            <div className="h-32 bg-gray-200 rounded"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -126,7 +213,7 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
       {/* Upload File */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
         <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-          📁 Upload File (.md, .txt)
+          📁 Upload File (.md, .txt, .pdf)
         </h3>
 
         <div className="space-y-4">
@@ -136,7 +223,7 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".md,.txt,text/markdown,text/plain"
+              accept=".md,.txt,.pdf,text/markdown,text/plain,application/pdf"
               onChange={handleFileSelect}
               className="hidden"
               id="file-upload"
@@ -155,7 +242,7 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
                 Trascina i file qui o clicca per selezionare
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                Supporta .md e .txt (max 10MB ciascuno)
+                Supporta .md, .txt e .pdf (max 10MB ciascuno)
               </p>
             </label>
           </div>
@@ -165,19 +252,30 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
               <h4 className="font-medium text-gray-900 dark:text-white">
                 File selezionati ({files.length}):
               </h4>
-              {files.map((file, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <span className="text-blue-600">📄</span>
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      {file.name}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {(file.size / 1024).toFixed(1)} KB
-                    </span>
+              {files.map((file, index) => {
+                const isPDF = file.type === 'application/pdf' || file.name.endsWith('.pdf');
+                const isMarkdown = file.name.endsWith('.md');
+                const icon = isPDF ? '📕' : isMarkdown ? '📝' : '📄';
+                
+                return (
+                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <span className="text-blue-600">{icon}</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        {file.name}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </span>
+                      {isPDF && (
+                        <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full">
+                          PDF
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
