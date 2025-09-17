@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useAction } from "convex/react";
+import * as pdfjsLib from "pdfjs-dist/build/pdf";
 import { api } from "../convex/_generated/api";
 
 interface DocumentUploaderProps {
@@ -14,6 +15,18 @@ interface ProcessingResult {
   chunksSaved: number;
   totalTokens: number;
 }
+
+const resolvePdfWorkerSrc = () => {
+  if (typeof window !== "undefined") {
+    try {
+      return new URL("pdf.worker.min.mjs", window.location.origin).toString();
+    } catch (error) {
+      console.warn("Impossibile risolvere l'URL del worker PDF locale:", error);
+    }
+  }
+
+  return "/pdf.worker.min.mjs";
+};
 
 export default function DocumentUploader({ userId }: DocumentUploaderProps) {
   const [files, setFiles] = useState<File[]>([]);
@@ -32,19 +45,28 @@ export default function DocumentUploader({ userId }: DocumentUploaderProps) {
   const processFileDocument = useMutation(api.knowledge.addDocumentWithEmbedding);
   const processPDFDocument = useAction(api.knowledgeActions.processPDFDocument);
 
-  // Funzione per estrarre testo da PDF con import dinamico
+  // Funzione per estrarre testo da PDF utilizzando PDF.js lato client
   const extractTextFromPDF = async (file: File): Promise<string> => {
     try {
-      // Import dinamico di PDF.js solo quando necessario (lato client)
-      const pdfjsLib = await import('pdfjs-dist');
-      
-      // Configura worker solo se non già configurato
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      const workerSrc = resolvePdfWorkerSrc();
+
+      if (pdfjsLib.GlobalWorkerOptions.workerSrc !== workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
       }
 
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const data = arrayBuffer;
+      let pdf;
+
+      try {
+        pdf = await pdfjsLib.getDocument({ data }).promise;
+      } catch (workerError) {
+        console.warn(
+          "Caricamento del worker PDF.js non riuscito, fallback senza worker attivato:",
+          workerError
+        );
+        pdf = await pdfjsLib.getDocument({ data, useWorker: false }).promise;
+      }
       let fullText = '';
 
       for (let i = 1; i <= pdf.numPages; i++) {
