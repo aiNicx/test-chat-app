@@ -12,8 +12,12 @@ Le tue caratteristiche principali:
 
 Ricorda sempre di essere rispettoso e di fornire informazioni verificate quando possibile.`;
 
-// Funzione helper per generare risposte AI usando OpenRouter
-export async function generateAIResponse(messages: Array<{role: "user" | "assistant", content: string}>): Promise<string> {
+// Funzione helper per generare risposte AI usando OpenRouter con RAG
+export async function generateAIResponse(
+  messages: Array<{role: "user" | "assistant", content: string}>,
+  searchKnowledge?: (query: string, userId: string, category?: string) => Promise<Array<{content: string, similarity: number}>>,
+  userId?: string
+): Promise<string> {
   try {
     // Controlla che la API key sia configurata
     const apiKey = process.env.OPENROUTER_API_KEY;
@@ -22,9 +26,32 @@ export async function generateAIResponse(messages: Array<{role: "user" | "assist
       return "Errore: API key non configurata. Configura OPENROUTER_API_KEY nelle variabili d'ambiente.";
     }
 
-    // Prepara i messaggi per OpenRouter
+    // Cerca nella knowledge base se disponibile
+    let knowledgeContext = "";
+    
+    if (userId && searchKnowledge && messages.length > 0) {
+      try {
+        // Usa l'ultimo messaggio dell'utente per la ricerca
+        const userMessages = messages.filter((msg: {role: "user" | "assistant", content: string}) => msg.role === "user");
+        const lastUserMessage = userMessages[userMessages.length - 1];
+        if (lastUserMessage) {
+          const searchResults = await searchKnowledge(lastUserMessage.content, userId);
+          if (searchResults.length > 0) {
+            knowledgeContext = "\n\nInformazioni dalla knowledge base:\n" + 
+              searchResults.map(result => `- ${result.content}`).join("\n");
+          }
+        }
+      } catch (error) {
+        console.log("Ricerca KB fallita, procedo senza:", error);
+      }
+    }
+
+    // Prepara i messaggi per OpenRouter con contesto RAG
     const formattedMessages = [
-      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "system",
+        content: SYSTEM_PROMPT + knowledgeContext + "\n\nSe hai informazioni dalla knowledge base, utilizzale per fornire risposte più accurate e specifiche."
+      },
       ...messages.map(msg => ({
         role: msg.role,
         content: msg.content

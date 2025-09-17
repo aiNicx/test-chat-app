@@ -106,8 +106,15 @@ export const saveAIResponse = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, { threadId, content }) => {
+    // Get thread info to include userId
+    const thread = await ctx.db.get(threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+
     await ctx.db.insert("chatMessages", {
       threadId,
+      userId: thread.userId, // Include userId for consistency
       content,
       role: "assistant" as const,
       createdAt: Date.now(),
@@ -215,5 +222,13 @@ export const deleteThreadInternal = internalMutation({
   handler: async (ctx, { threadId }) => {
     await ctx.db.delete(threadId);
     return null;
+  },
+});
+
+// Helper function to get thread by ID
+export const getThread = internalQuery({
+  args: { threadId: v.id("chatThreads") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.threadId);
   },
 });

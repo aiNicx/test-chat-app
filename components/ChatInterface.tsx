@@ -61,7 +61,7 @@ export default function ChatInterface() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!message.trim() || !user || !currentThreadId || isLoading) return;
 
     const messageText = message.trim();
@@ -74,6 +74,9 @@ export default function ChatInterface() {
         prompt: messageText,
         userId: user.id,
       });
+
+      // Trigger RAG search and response generation
+      // Questo è gestito automaticamente dal backend quando viene creato il messaggio
     } catch (error) {
       console.error("Errore nell'invio del messaggio:", error);
     } finally {

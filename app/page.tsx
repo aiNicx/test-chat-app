@@ -24,9 +24,17 @@ export default function Home() {
       <header className="bg-white dark:bg-gray-800 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              La Mia App
-            </h1>
+            <div className="flex items-center space-x-4">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                La Mia App
+              </h1>
+              <a
+                href="/knowledge"
+                className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400"
+              >
+                📚 Knowledge Base
+              </a>
+            </div>
             <UserButton afterSignOutUrl="/signin" />
           </div>
         </div>
