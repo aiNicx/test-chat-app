@@ -471,18 +471,25 @@ export const processPDFDocument = action({
 });
 
 // Funzione helper per pulire il testo estratto dai PDF
-function cleanPDFText(text: string): string {
-  return text
+export function cleanPDFText(text: string): string {
+  let cleaned = text
+    // Normalizza le sequenze di newline di Windows/Mac in newline Unix
+    .replace(/\r\n?/g, '\n')
     // Rimuovi caratteri di controllo e caratteri speciali problematici
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    // Normalizza gli spazi bianchi
-    .replace(/\s+/g, ' ')
-    // Rimuovi spazi multipli
-    .replace(/[ ]{2,}/g, ' ')
+    // Comprimi gli spazi consecutivi senza toccare i newline
+    .replace(/[^\S\n]+/g, ' ')
     // Ripara le parole spezzate a fine riga
-    .replace(/(\w)-\s+(\w)/g, '$1$2')
-    // Normalizza le interruzioni di riga
-    .replace(/\n\s*\n/g, '\n\n')
-    // Rimuovi spazi all'inizio e alla fine
+    .replace(/(\w)-\s+(\w)/g, '$1$2');
+
+  cleaned = cleaned
+    // Rimuovi spazi all'inizio o fine riga
+    .replace(/[^\S\n]+\n/g, '\n')
+    .replace(/\n[^\S\n]+/g, '\n')
+    // Limita le righe vuote consecutive a un massimo di due newline
+    .replace(/\n{3,}/g, '\n\n')
+    // Rimuovi spazi all'inizio e alla fine del documento
     .trim();
+
+  return cleaned;
 }

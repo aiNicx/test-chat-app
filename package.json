@@ -9,7 +9,9 @@
     "predev": "convex dev --until-success && convex dev --once --run-sh \"node setup.mjs --once\" && convex dashboard",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "npm run test:build && node --test dist-tests/__tests__/cleanPDFText.test.js",
+    "test:build": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.31",
