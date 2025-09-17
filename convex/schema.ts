@@ -14,4 +14,22 @@ export default defineSchema({
   numbers: defineTable({
     value: v.number(),
   }),
+  
+  // Chat threads table
+  chatThreads: defineTable({
+    userId: v.string(),
+    title: v.string(),
+    summary: v.string(),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
+  
+  // Chat messages table
+  chatMessages: defineTable({
+    threadId: v.id("chatThreads"),
+    userId: v.optional(v.string()),
+    content: v.string(),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    createdAt: v.number(),
+  }).index("by_thread", ["threadId"])
+    .index("by_thread_and_creation", ["threadId", "createdAt"]),
 });

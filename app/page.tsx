@@ -2,6 +2,7 @@
 
 import { UserButton, useUser } from "@clerk/nextjs";
 import type { UserResource } from "@clerk/types";
+import ChatInterface from "../components/ChatInterface";
 
 export default function Home() {
   const { isSignedIn, isLoaded, user } = useUser();
@@ -32,8 +33,13 @@ export default function Home() {
       </header>
       
       <main className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-        <div className="text-center">
+        <div className="text-center mb-8">
           <WelcomeMessage user={user} />
+        </div>
+        
+        {/* Chat Interface */}
+        <div className="mt-12">
+          <ChatInterface />
         </div>
       </main>
     </div>
